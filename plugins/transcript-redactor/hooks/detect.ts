@@ -29,6 +29,7 @@ export type Config = {
   allowEmails: readonly string[]
   allowPrefix: readonly string[]
   denyPrefix: readonly string[]
+  allowUrl: RegExp | null
 }
 
 // The tools that run on this machine. A placeholder is only swapped back for
@@ -708,6 +709,18 @@ const SRI = /\bsha(?:1-[A-Za-z0-9+/]{27}=|256-[A-Za-z0-9+/]{43}=|384-[A-Za-z0-9+
 // only, so a query string on the same URL is still scanned.
 const PUBLIC_URL = /https:\/\/fonts\.gstatic\.com\/[A-Za-z0-9_/.-]+/g
 
+// The `allowUrlHosts` option: the path of a URL on one of these hosts is
+// left alone (a task link like `/app/task/<slug>-<id>`). The host has to
+// follow the scheme and be followed by a port or `/`, so `evil.com/<host>/`
+// and `<host>.evil.com` don't match. Path characters only, so a query string
+// or fragment on the same URL is still scanned.
+function allowUrlPattern(hosts: string[]): RegExp | null {
+  const clean = hosts.map((h) => h.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter((h) => /^[a-z0-9.-]+$/.test(h))
+  if (clean.length === 0) return null
+  const alt = clean.map((h) => h.replace(/\./g, '\\.')).join('|')
+  return new RegExp(String.raw`https?://(?:${alt})(?::\d{1,5})?/[A-Za-z0-9_/.~%-]*`, 'gi')
+}
+
 // Mail: an optional `cat -n`, Read or `grep -n` prefix on each line.
 const PFX = String.raw`(?:[ \t]*\d+\t|[^\s:]+:\d+[:-])?`
 const PFX_RE = new RegExp(`^${PFX}`)
@@ -1374,11 +1387,12 @@ function mailSpans(text: string, spans: Spans, boundaries: Set<string>): void {
   if (/multipart\//i.test(text)) for (const m of text.matchAll(BOUNDARY)) boundaries.add(m[1]!.replace(/^-+|[-=]+$/g, ''))
 }
 
-function protectedSpans(text: string, boundaries: Set<string>): Spans {
+function protectedSpans(text: string, boundaries: Set<string>, cfg: Config): Spans {
   const spans = new Spans()
   mimeBodySpans(text, spans)
   mailSpans(text, spans, boundaries)
   if (text.includes('fonts.gstatic.com')) for (const m of text.matchAll(PUBLIC_URL)) spans.add(m.index!, m.index! + m[0].length)
+  if (cfg.allowUrl && text.includes('://')) for (const m of text.matchAll(cfg.allowUrl)) spans.add(m.index!, m.index! + m[0].length)
   // The Cloudflare Web Analytics beacon token is public, on every page.
   if (text.includes('data-cf-beacon')) for (const m of text.matchAll(CF_BEACON)) spans.add(m.index!, m.index! + m[0].length)
   return spans.seal()
@@ -1402,7 +1416,7 @@ function cssClass(token: string, offset: number, whole: string, after: string): 
 
 function scrubTokens(text: string, cfg: Config): string {
   const boundaries = new Set<string>()
-  const spans = protectedSpans(text, boundaries)
+  const spans = protectedSpans(text, boundaries, cfg)
   const beforeAt = (whole: string, offset: number): string => whole.slice(Math.max(0, offset - 64), offset)
   const isBoundary = (t: string): boolean => {
     const core = t.replace(/^-+|[-=]+$/g, '')
@@ -1595,5 +1609,6 @@ export function makeConfig(options: Record<string, unknown>): Config {
     allowEmails: strings(options.allowEmails),
     allowPrefix: strings(options.allowPrefixes),
     denyPrefix: strings(options.denyPrefixes),
+    allowUrl: allowUrlPattern(strings(options.allowUrlHosts)),
   }
 }

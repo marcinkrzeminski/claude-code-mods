@@ -82,6 +82,7 @@ Set them with `/plugin configure transcript-redactor@claude-code-mods`, or under
 | `allow` | empty | Exact strings never to hide, comma separated |
 | `allowEmails` | empty | Addresses or `@domain.com` never to hide |
 | `allowPrefixes` | empty | Extra id prefixes to treat as public |
+| `allowUrlHosts` | empty | Hosts (`app.todoist.com`) whose link paths are kept as written. The query string is still scanned, and a vendor-shaped key in the path is still hidden |
 | `denyPrefixes` | empty | Prefixes to test even though they look like a public id |
 
 ## How it works

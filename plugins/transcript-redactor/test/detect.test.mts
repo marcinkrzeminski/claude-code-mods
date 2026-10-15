@@ -696,6 +696,36 @@ for (const text of ROUND_TRIP) {
   if (restore(scrub(param)) !== `https://x.io/?api_key=${ANTHROPIC}`) fail('LOSS  a placeholder in a query parameter')
 }
 
+// allowUrlHosts: the path on a listed host is kept; the query, lookalike
+// hosts and vendor-shaped keys are still hidden. Each check uses its own id,
+// because a value hidden once is hidden wherever it turns up again.
+{
+  const urlCfg = makeConfig({ allowUrlHosts: 'app.todoist.com, https://linear.app/' })
+  const slug = (): string => `check-real-user-lcp-on-mobile-${mixed(16)}`
+  const probe = `https://app.todoist.com/app/task/${slug()}`
+  if (scrub(probe) === probe) fail('MISS  allowUrlHosts: the default config no longer hides a task slug, so this test proves nothing')
+  for (const text of [
+    `https://app.todoist.com/app/task/${slug()}`,
+    `see https://app.todoist.com/app/task/${slug()}.`,
+    `https://linear.app/acme/issue/ENG-1/${slug()}`,
+    `https://APP.todoist.com:443/app/task/${slug()}`,
+  ]) {
+    if (scrubSecrets(text, urlCfg) !== text) fail(`FALSE POSITIVE  allowUrlHosts: ${text}`)
+  }
+  const task = `https://app.todoist.com/app/task/${slug()}`
+  const q = scrubSecrets(`${task}?token=${GITHUB}`, urlCfg)
+  if (leaks(q, GITHUB) || !q.startsWith(task)) fail('MISS  allowUrlHosts: a query on a listed host')
+  for (const [text, secret] of [
+    ...['https://app.todoist.com.evil.io/task/', 'https://evil.io/app.todoist.com/', 'https://app.todoist.com@evil.io/'].map((u) => {
+      const s = slug()
+      return [u + s, s.slice(-16)]
+    }),
+    [`https://app.todoist.com/${ANTHROPIC}`, ANTHROPIC],
+  ]) {
+    if (leaks(scrubSecrets(text, urlCfg), secret)) fail(`MISS  allowUrlHosts: ${text.slice(0, 40)}`)
+  }
+}
+
 // 25. A live placeholder read back from a file is quoted text, not a handle.
 {
   const tag = scrub(`k=${GITHUB}`).slice(2)
